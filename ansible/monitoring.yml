@@ -1,0 +1,81 @@
+---
+- name: Prepare and deploy the Prometheus monitoring server
+  hosts: monitoring
+  become: true
+  vars_files:
+    - group_vars/monitoring.yml
+  vars:
+    docker_users:
+      - "{{ ansible_user }}"
+    docker_install_compose_plugin: true
+    docker_install_compose: false
+
+  pre_tasks:
+    - name: Refresh apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install monitoring host packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - nginx
+          - python3
+          - python3-docker
+          - python3-passlib
+          - ufw
+        state: present
+      when: ansible_os_family == "Debian"
+
+  roles:
+    - role: geerlingguy.docker
+    - role: loki
+    - role: monitoring
+
+  tasks:
+    - name: Allow SSH through the host firewall
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Allow approved clients to access Prometheus
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ item }}"
+        to_port: "{{ prometheus_ui_port }}"
+        proto: tcp
+      loop: "{{ prometheus_ui_allowed_cidrs }}"
+
+    - name: Allow approved clients to access Grafana
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ item }}"
+        to_port: "{{ grafana_ui_port }}"
+        proto: tcp
+      loop: "{{ grafana_ui_allowed_cidrs }}"
+
+    - name: Allow the application VM to push logs to Loki
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ loki_allowed_cidr | regex_replace('/32$', '') }}"
+        to_ip: "{{ loki_bind_address }}"
+        to_port: "{{ loki_vpc_port }}"
+        proto: tcp
+
+    - name: Deny incoming traffic by default
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Allow outgoing traffic by default
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Enable the host firewall
+      community.general.ufw:
+        state: enabled

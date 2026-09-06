@@ -1,0 +1,11 @@
+---
+- name: Restart Prometheus
+  community.docker.docker_container:
+    name: "{{ prometheus_container_name }}"
+    state: started
+    restart: true
+
+- name: Reload Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

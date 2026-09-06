@@ -1,0 +1,26 @@
+---
+# Copy this file to group_vars/app_servers/vault.yml and encrypt it:
+# ansible-vault encrypt group_vars/app_servers/vault.yml
+#
+# Do not commit the encrypted vault file unless you intentionally want to keep
+# encrypted secrets in the repository.
+
+app_secret_env: {}
+
+# Required by the Nginx monitoring endpoints. Generate a long random value.
+# monitoring_basic_auth_password: change-me
+
+# app_registry_username: username
+# app_registry_password: token-or-password
+# postgres_user: bulletins
+# postgres_password: change-me
+# app_secret_env:
+#   SPRING_DATASOURCE_URL: jdbc:postgresql://bulletin-board-postgres:5432/bulletins
+#   SPRING_DATASOURCE_USERNAME: bulletins
+#   SPRING_DATASOURCE_PASSWORD: change-me
+#   STORAGE_S3_BUCKET: bucket-name
+#   STORAGE_S3_REGION: ru-central1
+#   STORAGE_S3_ENDPOINT: https://storage.yandexcloud.net
+#   STORAGE_S3_ACCESSKEY: change-me
+#   STORAGE_S3_SECRETKEY: change-me
+#   STORAGE_S3_CDNURL: https://cdn.example.com

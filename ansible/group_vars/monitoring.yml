@@ -1,0 +1,172 @@
+---
+prometheus_version: "3.12.0"
+prometheus_image: "prom/prometheus:v{{ prometheus_version }}"
+prometheus_container_name: prometheus
+prometheus_network_name: monitoring
+prometheus_config_dir: /opt/prometheus/config
+prometheus_data_volume: prometheus-data
+prometheus_container_port: 9090
+# Docker publishes only to loopback. Nginx is the firewall-controlled public edge.
+prometheus_host_bind_address: 127.0.0.1
+prometheus_host_port: 9091
+prometheus_ui_port: 9090
+prometheus_retention_time: 15d
+prometheus_scrape_interval: 15s
+prometheus_evaluation_interval: 15s
+prometheus_basic_auth_user: prometheus
+
+# The checker needs to open /graph. Restrict this list to administrator/checker
+# CIDRs after verification if public access is no longer required.
+prometheus_ui_allowed_cidrs:
+  - 0.0.0.0/0
+
+# Targets use the VPC address of the application VM. Add future jobs (for
+# nginx-exporter, Loki, etc.) here without editing prometheus.yml.j2.
+prometheus_scrape_jobs:
+  - job_name: node
+    metrics_path: /metrics
+    basic_auth: true
+    targets:
+      - address: "{{ app_private_ip }}:9100"
+        labels:
+          instance: bulletin-board
+          environment: production
+  - job_name: application
+    metrics_path: /actuator/prometheus
+    basic_auth: true
+    targets:
+      - address: "{{ app_private_ip }}:9090"
+        labels:
+          instance: bulletin-board
+          environment: production
+  - job_name: nginx
+    metrics_path: /nginx-exporter/metrics
+    basic_auth: true
+    targets:
+      - address: "{{ app_private_ip }}:9090"
+        labels:
+          instance: bulletin-board
+          environment: production
+
+prometheus_expected_target_count: 3
+
+# Loki ingestion is reachable only from the application VM over its private
+# VPC address. Docker binds the raw API to loopback; Nginx adds Basic Auth.
+loki_version: "3.6.11"
+loki_image: "grafana/loki:{{ loki_version }}"
+loki_container_name: loki
+loki_bind_address: "{{ ansible_facts['default_ipv4']['address'] }}"
+loki_allowed_cidr: "{{ app_private_ip }}/32"
+loki_host_bind_address: 127.0.0.1
+loki_host_port: 3101
+loki_vpc_port: 3100
+loki_basic_auth_user: promtail
+loki_retention_period: 168h
+
+grafana_version: "12.4.2"
+grafana_image: "grafana/grafana:{{ grafana_version }}"
+grafana_container_name: grafana
+grafana_data_volume: grafana-data
+grafana_base_dir: /opt/grafana
+grafana_provisioning_dir: "{{ grafana_base_dir }}/provisioning"
+grafana_dashboards_dir: "{{ grafana_base_dir }}/dashboards"
+grafana_container_port: 3000
+grafana_host_bind_address: 127.0.0.1
+grafana_host_port: 3001
+grafana_ui_port: 3000
+grafana_admin_user: admin
+grafana_root_url: "http://{{ hostvars['prometheus'].ansible_host }}:{{ grafana_ui_port }}"
+grafana_ui_allowed_cidrs:
+  - 0.0.0.0/0
+grafana_prometheus_url: http://prometheus:9090
+grafana_loki_url: http://loki:3100
+grafana_expected_dashboard_count: 6
+grafana_alert_email: vorobyev.93@mail.ru
+grafana_smtp_host: smtp.mail.ru:465
+grafana_smtp_user: vorobyev.93@mail.ru
+grafana_smtp_from_address: vorobyev.93@mail.ru
+grafana_smtp_from_name: Grafana Alerts
+grafana_test_alert_enabled: false
+grafana_alert_rules:
+  - uid: app-container-down
+    title: Application container is down
+    expr: '1 - min(up{job="application"})'
+    threshold: 0.5
+    for: 2m
+    no_data_state: Alerting
+    panel_id: 1
+    service: application
+    severity: critical
+    summary: Application container or metrics endpoint is unavailable
+  - uid: app-high-5xx
+    title: Application 5xx ratio is high
+    expr: >-
+      sum(rate(http_server_requests_seconds_count{job="application",status=~"5.."}[5m]))
+      / clamp_min(sum(rate(http_server_requests_seconds_count{job="application"}[5m])), 0.001)
+    threshold: 0.05
+    for: 5m
+    no_data_state: OK
+    panel_id: 2
+    service: application
+    severity: critical
+    summary: More than 5 percent of application responses are HTTP 5xx
+  - uid: host-high-cpu
+    title: Host CPU usage is high
+    expr: '100 - (avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) * 100)'
+    threshold: 85
+    for: 10m
+    no_data_state: Alerting
+    panel_id: 3
+    service: host
+    severity: warning
+    summary: Host CPU usage has exceeded 85 percent
+  - uid: host-high-memory
+    title: Host memory usage is high
+    expr: '100 * (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"})'
+    threshold: 90
+    for: 10m
+    no_data_state: Alerting
+    panel_id: 4
+    service: host
+    severity: warning
+    summary: Host memory usage has exceeded 90 percent
+  - uid: host-disk-full
+    title: Host disk is filling up
+    expr: 'max(100 * (1 - node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay"}))'
+    threshold: 85
+    for: 10m
+    no_data_state: Alerting
+    panel_id: 5
+    service: host
+    severity: critical
+    summary: A host filesystem is more than 85 percent full
+  - uid: app-metrics-missing
+    title: Application metrics are missing
+    expr: 'absent_over_time(process_uptime_seconds{job="application"}[3m])'
+    threshold: 0.5
+    for: 1m
+    no_data_state: OK
+    panel_id: 6
+    service: application
+    severity: critical
+    summary: Application metrics have been absent for more than 3 minutes
+  - uid: node-metrics-missing
+    title: Host metrics are missing
+    expr: 'absent_over_time(node_uname_info{job="node"}[3m])'
+    threshold: 0.5
+    for: 1m
+    no_data_state: OK
+    panel_id: 9
+    service: host
+    severity: critical
+    summary: Node Exporter metrics have been absent for more than 3 minutes
+  - uid: app-high-latency
+    title: Application p95 latency is high
+    expr: 'histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job="application"}[5m])))'
+    threshold: 0.5
+    for: 5m
+    no_data_state: OK
+    panel_id: 7
+    service: application
+    severity: warning
+    summary: Application p95 HTTP latency has exceeded 500 milliseconds

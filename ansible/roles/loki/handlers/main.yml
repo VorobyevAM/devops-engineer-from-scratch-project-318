@@ -1,0 +1,11 @@
+---
+- name: Restart Loki
+  community.docker.docker_container:
+    name: "{{ loki_container_name }}"
+    state: started
+    restart: true
+
+- name: Reload Loki Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

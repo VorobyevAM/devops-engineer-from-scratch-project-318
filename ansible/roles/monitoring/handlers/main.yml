@@ -1,0 +1,11 @@
+---
+- name: Restart Grafana
+  community.docker.docker_container:
+    name: "{{ grafana_container_name }}"
+    state: started
+    restart: true
+
+- name: Reload monitoring Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

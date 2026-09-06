@@ -1,0 +1,67 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "{job=\"application\",env=~\"$env\",app=~\"$app\",host=~\"$host\"} | json", "queryType": "range", "refId": "A"}],
+      "title": "Application JSON logs", "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "sum(count_over_time({job=\"nginx\",env=~\"$env\",app=~\"$app\",host=~\"$host\",log_type=\"access\"} | json | status >= 500 [5m]))", "queryType": "range", "refId": "A"}],
+      "title": "Nginx 5xx in 5 minutes", "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "max(quantile_over_time(0.95, {job=\"nginx\",env=~\"$env\",app=~\"$app\",host=~\"$host\",log_type=\"access\"} | json | unwrap request_time | __error__=\"\" [5m]))", "legendFormat": "p95", "queryType": "range", "refId": "A"}],
+      "title": "Nginx request latency p95 from logs", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "{job=~\"application|nginx\",env=~\"$env\",app=~\"$app\",host=~\"$host\"} |~ \"(?i)$user\"", "queryType": "range", "refId": "A"}],
+      "title": "Search by user, IP, URI or message", "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "{job=\"application\",env=~\"$env\",app=~\"$app\",host=~\"$host\",level=~\"ERROR|WARN\"}", "queryType": "range", "refId": "A"}],
+      "title": "Application warnings and errors", "type": "logs"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["provisioned", "logs", "loki"],
+  "templating": {
+    "list": [
+      {"current": {"text": "production", "value": "production"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values(env)", "includeAll": true, "label": "Environment", "name": "env", "options": [], "query": "label_values(env)", "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "bulletins", "value": "bulletins"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values(app)", "includeAll": true, "label": "Application", "name": "app", "options": [], "query": "label_values(app)", "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "bulletin-board", "value": "bulletin-board"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values(host)", "includeAll": true, "label": "Host", "name": "host", "options": [], "query": "label_values(host)", "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "", "value": ""}, "label": "User / search text", "name": "user", "options": [], "query": "", "type": "textbox"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Centralized Logs",
+  "uid": "centralized-logs",
+  "version": 1
+}

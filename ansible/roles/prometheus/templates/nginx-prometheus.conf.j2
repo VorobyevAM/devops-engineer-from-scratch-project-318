@@ -1,0 +1,31 @@
+log_format prometheus_json escape=json
+  '{"timestamp":"$time_iso8601",'
+  '"remote_addr":"$remote_addr",'
+  '"request":"$request",'
+  '"status":$status,'
+  '"bytes_sent":$body_bytes_sent,'
+  '"request_time":$request_time,'
+  '"upstream_response_time":"$upstream_response_time",'
+  '"http_user_agent":"$http_user_agent"}';
+
+server {
+    listen {{ prometheus_ui_port }};
+    server_name _;
+
+    access_log /var/log/nginx/prometheus-access.json prometheus_json;
+    error_log /var/log/nginx/prometheus-error.log warn;
+
+{% for cidr in prometheus_ui_allowed_cidrs %}
+    allow {{ cidr }};
+{% endfor %}
+    deny all;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ prometheus_host_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

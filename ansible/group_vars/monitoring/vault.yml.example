@@ -1,0 +1,7 @@
+---
+# Copy the shared monitoring password from the encrypted app-server vault.
+# Never commit the resulting vault.yml without encrypting it first.
+monitoring_basic_auth_password: replace-with-a-random-password-at-least-16-characters
+grafana_admin_password: replace-with-a-different-random-password-at-least-16-characters
+grafana_ntfy_webhook_url: https://ntfy.sh/replace-with-a-random-topic?template=grafana
+grafana_smtp_password: replace-with-mail-ru-application-password

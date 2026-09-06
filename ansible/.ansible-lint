@@ -1,0 +1,13 @@
+---
+profile: basic
+offline: true
+exclude_paths:
+  - .ansible/
+  - group_vars/all/vault.yml
+  - roles/geerlingguy.docker/
+mock_roles:
+  - geerlingguy.docker
+skip_list:
+  # Эти переменные образуют общий интерфейс между playbook, group_vars и
+  # несколькими ролями; переименование по имени одной роли разрушает его.
+  - var-naming[no-role-prefix]

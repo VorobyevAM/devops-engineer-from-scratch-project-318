@@ -1,0 +1,10 @@
+---
+# One shared credential lets Prometheus authenticate to the protected Nginx
+# endpoints on the application VM. Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt group_vars/all/vault.yml
+monitoring_basic_auth_password: replace-with-a-random-password-at-least-16-characters
+grafana_admin_password: replace-with-a-different-random-password-at-least-16-characters
+# Random, unguessable ntfy topic URL. The topic acts as the access secret.
+grafana_ntfy_webhook_url: https://ntfy.sh/replace-with-a-random-topic?template=grafana
+# Mail.ru password created under Security -> Passwords for external applications.
+grafana_smtp_password: replace-with-mail-ru-application-password

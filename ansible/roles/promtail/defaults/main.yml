@@ -1,0 +1,14 @@
+---
+promtail_version: "3.6.11"
+promtail_image: "grafana/promtail:{{ promtail_version }}"
+promtail_container_name: promtail
+promtail_config_dir: /opt/promtail
+promtail_positions_volume: promtail-positions
+promtail_http_listen_address: 127.0.0.1
+promtail_http_port: 9080
+promtail_environment: production
+promtail_host_label: bulletin-board
+promtail_app_label: bulletins
+promtail_app_container_name: bulletin-board
+promtail_loki_url: ""
+promtail_loki_user: promtail

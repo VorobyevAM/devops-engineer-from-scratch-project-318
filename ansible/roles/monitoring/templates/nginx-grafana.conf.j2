@@ -1,0 +1,38 @@
+log_format grafana_json escape=json
+  '{"timestamp":"$time_iso8601",'
+  '"remote_addr":"$remote_addr",'
+  '"request":"$request",'
+  '"status":$status,'
+  '"bytes_sent":$body_bytes_sent,'
+  '"request_time":$request_time,'
+  '"upstream_response_time":"$upstream_response_time",'
+  '"http_user_agent":"$http_user_agent"}';
+
+map $http_upgrade $grafana_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen {{ grafana_ui_port }};
+    server_name _;
+
+    access_log /var/log/nginx/grafana-access.json grafana_json;
+    error_log /var/log/nginx/grafana-error.log warn;
+
+{% for cidr in grafana_ui_allowed_cidrs %}
+    allow {{ cidr }};
+{% endfor %}
+    deny all;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ grafana_host_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $grafana_connection_upgrade;
+    }
+}

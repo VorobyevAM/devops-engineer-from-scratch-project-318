@@ -1,0 +1,85 @@
+---
+app_name: bulletin-board
+app_container_name: bulletin-board
+app_image: ghcr.io/vorobyevam/devops-engineer-from-scratch-project-318
+app_image_tag: latest
+app_registry: ghcr.io
+app_domain: hexlet-vorobev.chickenkiller.com
+app_network: bulletin-board
+app_host_bind_ip: 127.0.0.1
+app_host_port: 8080
+app_container_port: 8080
+app_management_host_port: 9090
+app_management_container_port: 9090
+app_base_dir: /opt/bulletin-board
+app_data_dir: "{{ app_base_dir }}/data"
+app_logs_dir: "{{ app_base_dir }}/logs"
+app_migrations_dir: "{{ app_base_dir }}/migrations"
+app_static_dir: "{{ app_base_dir }}/static"
+app_pull_policy: always
+
+certbot_email: vorobyev.93@mail.ru
+letsencrypt_webroot: /var/www/letsencrypt
+letsencrypt_live_dir: "/etc/letsencrypt/live/{{ app_domain }}"
+
+allowed_tcp_ports:
+  - "22"
+  - "80"
+  - "443"
+
+denied_tcp_ports:
+  - "8080"
+  - "9090"
+  - "9100"
+
+# Monitoring endpoints are published by Nginx on the VM private address only.
+# This is the private /32 of the monitoring VM. Never use 0.0.0.0/0 here or
+# in the application VM's Yandex Cloud Security Group.
+monitoring_server_cidr: "{{ monitoring_private_ip }}/32"
+monitoring_bind_address: "{{ ansible_default_ipv4.address }}"
+monitoring_management_proxy_port: 9090
+monitoring_node_exporter_proxy_port: 9100
+monitoring_basic_auth_user: prometheus
+monitoring_basic_auth_file: /etc/nginx/.htpasswd-monitoring
+monitoring_basic_auth_realm: metrics
+node_exporter_version: "1.12.1"
+node_exporter_listen_address: 127.0.0.1
+node_exporter_port: 9100
+nginx_exporter_version: "1.5.1"
+nginx_exporter_image: "nginx/nginx-prometheus-exporter:{{ nginx_exporter_version }}"
+nginx_exporter_container_name: nginx-prometheus-exporter
+nginx_exporter_listen_address: 127.0.0.1
+nginx_exporter_port: 9113
+nginx_exporter_stub_status_url: http://127.0.0.1:8081/stub_status
+nginx_application_access_log: /var/log/nginx/bulletin-board-access.json
+nginx_monitoring_access_log: /var/log/nginx/monitoring-access.json
+nginx_json_error_log: /var/log/nginx/observability-error.json
+
+# Promtail sends logs only through the monitoring VM private address. Its Basic
+# Auth password is monitoring_basic_auth_password from encrypted all/vault.yml.
+promtail_version: "3.6.11"
+promtail_image: "grafana/promtail:{{ promtail_version }}"
+promtail_container_name: promtail
+promtail_http_port: 9080
+promtail_loki_url: "http://{{ monitoring_private_ip }}:3100/loki/api/v1/push"
+promtail_loki_user: promtail
+promtail_environment: "{{ deployment_environment }}"
+promtail_host_label: bulletin-board
+promtail_app_label: bulletins
+
+postgres_container_name: bulletin-board-postgres
+postgres_image: postgres:16-alpine
+postgres_data_dir: "{{ app_base_dir }}/postgres"
+postgres_db: bulletins
+postgres_port: "5432"
+
+flyway_image: flyway/flyway:11-alpine
+
+app_env:
+  SPRING_PROFILES_ACTIVE: prod
+  MANAGEMENT_SERVER_PORT: "{{ app_management_container_port }}"
+  JAVA_OPTS: "-Djava.io.tmpdir=/app/data/tmp"
+
+# These values override the role defaults. Put secrets in
+# group_vars/app_servers/vault.yml encrypted with Ansible Vault.
+app_secret_env: {}

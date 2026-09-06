@@ -1,0 +1,24 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: email
+    receivers:
+      - uid: mail-ru-email
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: {{ grafana_alert_email | to_json }}
+          singleEmail: true
+          subject: "{{ '{{' }} template \"default.title\" . {{ '}}' }}"
+
+  - orgId: 1
+    name: ntfy
+    receivers:
+      - uid: ntfy-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: {{ grafana_ntfy_webhook_url | to_json }}
+          httpMethod: POST
+          maxAlerts: "10"

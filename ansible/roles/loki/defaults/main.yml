@@ -1,0 +1,18 @@
+---
+loki_version: "3.6.11"
+loki_image: "grafana/loki:{{ loki_version }}"
+loki_container_name: loki
+loki_config_dir: /opt/loki
+loki_data_volume: loki-data
+loki_network_name: monitoring
+loki_container_port: 3100
+# Loki has no built-in authentication. Docker publishes it on loopback and
+# Nginx exposes a Basic-Auth protected listener on the VPC address only.
+loki_host_bind_address: 127.0.0.1
+loki_host_port: 3101
+loki_vpc_port: 3100
+loki_bind_address: "{{ ansible_facts['default_ipv4']['address'] }}"
+loki_allowed_cidr: ""
+loki_basic_auth_user: promtail
+loki_basic_auth_file: /etc/nginx/.htpasswd-loki
+loki_retention_period: 168h

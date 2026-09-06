@@ -1,0 +1,28 @@
+global:
+  scrape_interval: {{ prometheus_scrape_interval }}
+  evaluation_interval: {{ prometheus_evaluation_interval }}
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+{% for job in prometheus_scrape_jobs %}
+  - job_name: {{ job.job_name | to_json }}
+    metrics_path: {{ job.metrics_path | default('/metrics') | to_json }}
+{% if job.basic_auth | default(false) %}
+    basic_auth:
+      username: {{ prometheus_basic_auth_user | to_json }}
+      password: {{ monitoring_basic_auth_password | to_json }}
+{% endif %}
+    static_configs:
+{% for target in job.targets %}
+      - targets:
+          - {{ target.address | to_json }}
+{% if target.labels is defined %}
+        labels:
+{% for key, value in target.labels.items() %}
+          {{ key }}: {{ value | to_json }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endfor %}

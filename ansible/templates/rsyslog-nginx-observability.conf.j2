@@ -1,0 +1,22 @@
+template(name="NginxObservabilityJson" type="list") {
+    constant(value="{")
+    constant(value="\"@timestamp\":\"")
+    property(name="timereported" dateFormat="rfc3339")
+    constant(value="\",\"service\":\"nginx\",\"log_type\":\"error\",\"host\":")
+    property(name="hostname" format="json")
+    constant(value=",\"severity\":")
+    property(name="syslogseverity-text" format="json")
+    constant(value=",\"message\":")
+    property(name="msg" format="json")
+    constant(value="}\n")
+}
+
+if ($programname == "nginx_observability") then {
+    action(
+        type="omfile"
+        file="{{ nginx_json_error_log }}"
+        fileCreateMode="0640"
+        template="NginxObservabilityJson"
+    )
+    stop
+}

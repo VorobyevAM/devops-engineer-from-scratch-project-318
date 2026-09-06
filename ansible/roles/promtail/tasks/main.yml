@@ -1,0 +1,89 @@
+---
+- name: Validate Promtail settings and Vault credential
+  ansible.builtin.assert:
+    that:
+      - promtail_http_listen_address in ['127.0.0.1', '::1']
+      - promtail_loki_url.startswith('http://10.')
+      - monitoring_basic_auth_password is defined
+      - monitoring_basic_auth_password | length >= 16
+    fail_msg: Promtail must send to the private Loki endpoint with credentials from Ansible Vault.
+  no_log: true
+
+- name: Create Promtail configuration directory
+  ansible.builtin.file:
+    path: "{{ promtail_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Promtail configuration with Loki credential
+  ansible.builtin.template:
+    src: promtail.yml.j2
+    dest: "{{ promtail_config_dir }}/promtail.yml"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart Promtail
+
+- name: Pull pinned Promtail image
+  community.docker.docker_image:
+    name: "{{ promtail_image }}"
+    source: pull
+
+- name: Create persistent Promtail positions volume
+  community.docker.docker_volume:
+    name: "{{ promtail_positions_volume }}"
+    state: present
+
+- name: Run Promtail container
+  community.docker.docker_container:
+    name: "{{ promtail_container_name }}"
+    image: "{{ promtail_image }}"
+    state: started
+    recreate: false
+    restart_policy: unless-stopped
+    user: root
+    network_mode: host
+    volumes:
+      - "{{ promtail_config_dir }}/promtail.yml:/etc/promtail/config.yml:ro"
+      - "{{ promtail_positions_volume }}:/var/lib/promtail"
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log/nginx:/var/log/nginx:ro
+    command:
+      - -config.file=/etc/promtail/config.yml
+    # The pinned image contains no HTTP client. The following host-side URI
+    # task checks the real readiness endpoint without a false Docker status.
+    healthcheck:
+      test:
+        - NONE
+    container_default_behavior: no_defaults
+
+- name: Apply pending Promtail configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Promtail readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ promtail_http_port }}/ready"
+    status_code: 200
+    return_content: true
+    timeout: 3
+  register: promtail_ready
+  retries: 24
+  delay: 5
+  until: promtail_ready.status == 200
+
+- name: Verify Promtail has no client delivery errors
+  ansible.builtin.command:
+    argv:
+      - docker
+      - logs
+      - --since
+      - 30s
+      - "{{ promtail_container_name }}"
+  register: promtail_recent_logs
+  changed_when: false
+  failed_when: "'final error sending batch' in promtail_recent_logs.stderr"
+  no_log: true

@@ -1,0 +1,42 @@
+---
+- name: Validate Nginx Prometheus Exporter settings
+  ansible.builtin.assert:
+    that:
+      - nginx_exporter_version | length > 0
+      - nginx_exporter_listen_address in ['127.0.0.1', '::1']
+      - nginx_exporter_stub_status_url.startswith('http://127.0.0.1:')
+    fail_msg: >-
+      Pin the exporter version and keep both the exporter and its internal
+      stub_status source on host loopback.
+
+- name: Pull pinned Nginx Prometheus Exporter image
+  community.docker.docker_image:
+    name: "{{ nginx_exporter_image }}"
+    source: pull
+
+- name: Run Nginx Prometheus Exporter on host loopback
+  community.docker.docker_container:
+    name: "{{ nginx_exporter_container_name }}"
+    image: "{{ nginx_exporter_image }}"
+    state: started
+    recreate: false
+    restart_policy: unless-stopped
+    network_mode: host
+    command:
+      - "--nginx.scrape-uri={{ nginx_exporter_stub_status_url }}"
+      - "--web.listen-address={{ nginx_exporter_listen_address }}:{{ nginx_exporter_port }}"
+      - "--log.format=json"
+    container_default_behavior: no_defaults
+
+- name: Wait for Nginx Prometheus Exporter endpoint
+  ansible.builtin.uri:
+    url: "http://{{ nginx_exporter_listen_address }}:{{ nginx_exporter_port }}/metrics"
+    status_code: 200
+    return_content: true
+  register: nginx_exporter_endpoint
+  retries: 12
+  delay: 2
+  until:
+    - nginx_exporter_endpoint.status == 200
+    - "'nginx_up' in nginx_exporter_endpoint.content"
+  changed_when: false

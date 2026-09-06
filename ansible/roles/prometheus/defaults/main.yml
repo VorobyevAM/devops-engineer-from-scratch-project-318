@@ -1,0 +1,19 @@
+---
+prometheus_version: "3.12.0"
+prometheus_image: "prom/prometheus:v{{ prometheus_version }}"
+prometheus_container_name: prometheus
+prometheus_network_name: monitoring
+prometheus_config_dir: /opt/prometheus/config
+prometheus_data_volume: prometheus-data
+prometheus_container_port: 9090
+prometheus_host_bind_address: 127.0.0.1
+prometheus_host_port: 9091
+prometheus_ui_port: 9090
+prometheus_retention_time: 15d
+prometheus_scrape_interval: 15s
+prometheus_evaluation_interval: 15s
+prometheus_basic_auth_user: prometheus
+prometheus_ui_allowed_cidrs:
+  - 127.0.0.1/32
+prometheus_scrape_jobs: []
+prometheus_expected_target_count: "{{ prometheus_scrape_jobs | map(attribute='targets') | map('length') | sum }}"

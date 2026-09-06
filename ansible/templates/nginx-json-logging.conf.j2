@@ -1,0 +1,18 @@
+log_format observability_json escape=json
+    '{'
+      '"@timestamp":"$time_iso8601",'
+      '"service":"nginx",'
+      '"log_type":"access",'
+      '"server_name":"$server_name",'
+      '"remote_addr":"$remote_addr",'
+      '"request_method":"$request_method",'
+      '"request_uri":"$request_uri",'
+      '"status":$status,'
+      '"body_bytes_sent":$body_bytes_sent,'
+      '"request_time":$request_time,'
+      '"upstream_addr":"$upstream_addr",'
+      '"upstream_status":"$upstream_status",'
+      '"upstream_response_time":"$upstream_response_time",'
+      '"http_referer":"$http_referer",'
+      '"http_user_agent":"$http_user_agent"'
+    '}';

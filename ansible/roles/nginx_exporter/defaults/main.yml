@@ -1,0 +1,7 @@
+---
+nginx_exporter_version: "1.5.1"
+nginx_exporter_image: "nginx/nginx-prometheus-exporter:{{ nginx_exporter_version }}"
+nginx_exporter_container_name: nginx-prometheus-exporter
+nginx_exporter_listen_address: 127.0.0.1
+nginx_exporter_port: 9113
+nginx_exporter_stub_status_url: http://127.0.0.1:8081/stub_status

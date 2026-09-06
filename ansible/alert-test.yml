@@ -1,0 +1,41 @@
+---
+- name: Toggle the provisioned Grafana notification test
+  hosts: monitoring
+  become: true
+  vars_files:
+    - group_vars/monitoring.yml
+  vars:
+    grafana_test_alert_enabled: false
+
+  tasks:
+    - name: Render Grafana alert rules with requested test state
+      ansible.builtin.template:
+        src: roles/monitoring/templates/alert-rules.yml.j2
+        dest: "{{ grafana_provisioning_dir }}/alerting/alert-rules.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: grafana_test_rule_config
+
+    - name: Restart Grafana to reload provisioned test rule
+      community.docker.docker_container:
+        name: "{{ grafana_container_name }}"
+        state: started
+        restart: true
+      when: grafana_test_rule_config.changed
+
+    - name: Wait for Grafana after alert test update
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ grafana_host_port }}/api/health"
+        status_code: 200
+        timeout: 5
+      register: grafana_test_health
+      retries: 24
+      delay: 5
+      until: grafana_test_health.status == 200
+
+    - name: Explain alert evaluation delay
+      ansible.builtin.debug:
+        msg: >-
+          Test rule is {{ 'enabled' if grafana_test_alert_enabled | bool else 'disabled' }}.
+          Allow up to 45 seconds for evaluation and notification delivery.

@@ -1,0 +1,120 @@
+---
+- name: Validate Loki access settings and Vault secret
+  ansible.builtin.assert:
+    that:
+      - loki_host_bind_address in ['127.0.0.1', '::1']
+      - loki_allowed_cidr not in ['0.0.0.0/0', '::/0']
+      - monitoring_basic_auth_password is defined
+      - monitoring_basic_auth_password | length >= 16
+    fail_msg: Loki must remain private and its ingestion credential must be stored in Ansible Vault.
+  no_log: true
+
+- name: Create Loki configuration directory
+  ansible.builtin.file:
+    path: "{{ loki_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Loki configuration
+  ansible.builtin.template:
+    src: loki.yml.j2
+    dest: "{{ loki_config_dir }}/loki.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Loki
+
+- name: Pull pinned Loki image
+  community.docker.docker_image:
+    name: "{{ loki_image }}"
+    source: pull
+
+- name: Create isolated monitoring Docker network
+  community.docker.docker_network:
+    name: "{{ loki_network_name }}"
+    driver: bridge
+    state: present
+
+- name: Create persistent Loki data volume
+  community.docker.docker_volume:
+    name: "{{ loki_data_volume }}"
+    state: present
+
+- name: Validate Loki configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --volume
+      - "{{ loki_config_dir }}/loki.yml:/etc/loki/config.yml:ro"
+      - "{{ loki_image }}"
+      - -config.file=/etc/loki/config.yml
+      - -verify-config=true
+  changed_when: false
+
+- name: Run Loki container
+  community.docker.docker_container:
+    name: "{{ loki_container_name }}"
+    image: "{{ loki_image }}"
+    state: started
+    recreate: false
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ loki_network_name }}"
+    comparisons:
+      networks: strict
+    published_ports:
+      - "{{ loki_host_bind_address }}:{{ loki_host_port }}:{{ loki_container_port }}"
+    volumes:
+      - "{{ loki_config_dir }}/loki.yml:/etc/loki/config.yml:ro"
+      - "{{ loki_data_volume }}:/loki"
+    command:
+      - -config.file=/etc/loki/config.yml
+    # The distroless Loki image has no shell/curl/wget. Readiness is checked
+    # immediately below from the host instead of installing a false-negative
+    # in-container healthcheck.
+    healthcheck:
+      test:
+        - NONE
+    container_default_behavior: no_defaults
+
+- name: Configure Loki ingestion Basic Auth credentials
+  community.general.htpasswd:
+    path: "{{ loki_basic_auth_file }}"
+    name: "{{ loki_basic_auth_user }}"
+    password: "{{ monitoring_basic_auth_password }}"
+    owner: root
+    group: www-data
+    mode: "0640"
+    crypt_scheme: bcrypt
+  no_log: true
+  notify: Reload Loki Nginx
+
+- name: Configure private Nginx reverse proxy for Loki ingestion
+  ansible.builtin.template:
+    src: nginx-loki.conf.j2
+    dest: /etc/nginx/conf.d/loki.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Loki Nginx
+
+- name: Validate Nginx configuration with Loki endpoint
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Apply pending Loki and Nginx changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Loki readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ loki_host_port }}/ready"
+    status_code: 200
+    return_content: true
+  register: loki_ready
+  retries: 24
+  delay: 5
+  until: loki_ready.status == 200

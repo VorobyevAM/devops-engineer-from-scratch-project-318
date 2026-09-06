@@ -1,0 +1,99 @@
+---
+- name: Generate a uniquely identifiable Nginx access log
+  hosts: app_servers
+  gather_facts: true
+  vars_files:
+    - group_vars/app_servers.yml
+  tasks:
+    - name: Create end-to-end test marker
+      ansible.builtin.set_fact:
+        logging_test_marker: "observability-e2e-{{ ansible_facts.date_time.epoch }}"
+
+    - name: Request the test endpoint through production Nginx
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail-with-body
+          - --silent
+          - --show-error
+          - --output
+          - /dev/null
+          - --write-out
+          - "%{http_code}"
+          - --resolve
+          - "{{ app_domain }}:443:127.0.0.1"
+          - "https://{{ app_domain }}/observability-e2e?marker={{ logging_test_marker }}"
+      register: logging_test_request
+      changed_when: false
+      failed_when: logging_test_request.stdout not in ['200', '404']
+
+    - name: Report generated test marker
+      ansible.builtin.debug:
+        msg: "Generated Nginx log marker {{ logging_test_marker }} (HTTP {{ logging_test_request.stdout }})."
+
+- name: Verify the test log reached Loki
+  hosts: monitoring
+  gather_facts: false
+  vars_files:
+    - group_vars/monitoring.yml
+  vars:
+    logging_test_marker: "{{ hostvars[groups['app_servers'][0]].logging_test_marker }}"
+    logging_test_query: "{job=\"nginx\",env=\"production\",app=\"bulletins\",host=\"bulletin-board\",log_type=\"access\"} |= \"{{ logging_test_marker }}\""
+    logging_app_query: "{job=\"application\",env=\"production\",app=\"bulletins\",host=\"bulletin-board\"}"
+    logging_5xx_query: 'sum(count_over_time({job="nginx",log_type="access"} | json | status >= 500 [5m]))'
+    logging_latency_query: 'max(quantile_over_time(0.95, {job="nginx",log_type="access"} | json | unwrap request_time | __error__="" [5m]))'
+  tasks:
+    - name: Wait until the test log is queryable in Loki
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/loki/api/v1/query_range?query={{ logging_test_query | urlencode }}&limit=10"
+        status_code: 200
+        return_content: true
+      register: loki_test_query_result
+      retries: 20
+      delay: 3
+      until: >-
+        loki_test_query_result.json.status == 'success' and
+        (loki_test_query_result.json.data.result | length) > 0
+
+    - name: Report successful end-to-end log delivery
+      ansible.builtin.debug:
+        msg: >-
+          Marker {{ logging_test_marker }} reached Loki in
+          {{ loki_test_query_result.json.data.result | length }} log stream(s).
+
+    - name: Read Loki label names
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/loki/api/v1/labels"
+        status_code: 200
+        return_content: true
+      register: loki_labels
+
+    - name: Verify application logs are queryable
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/loki/api/v1/query_range?query={{ logging_app_query | urlencode }}&limit=1"
+        status_code: 200
+        return_content: true
+      register: loki_application_logs
+
+    - name: Validate dashboard LogQL metric queries
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/loki/api/v1/query?query={{ item | urlencode }}"
+        status_code: 200
+        return_content: true
+      loop:
+        - "{{ logging_5xx_query }}"
+        - "{{ logging_latency_query }}"
+      loop_control:
+        label: LogQL query
+
+    - name: Assert required labels and application stream
+      ansible.builtin.assert:
+        that:
+          - loki_labels.json.status == 'success'
+          - "'job' in loki_labels.json.data"
+          - "'env' in loki_labels.json.data"
+          - "'app' in loki_labels.json.data"
+          - "'host' in loki_labels.json.data"
+          - loki_application_logs.json.status == 'success'
+          - (loki_application_logs.json.data.result | length) > 0
+        fail_msg: Loki is missing required labels or the application log stream.

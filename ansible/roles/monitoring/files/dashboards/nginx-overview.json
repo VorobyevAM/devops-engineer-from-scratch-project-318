@@ -1,0 +1,54 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0}, "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "nginx_up{job=\"nginx\",instance=~\"$instance\"}", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "Nginx exporter status", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0, "unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 0}, "id": 2,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "rate(nginx_http_requests_total{job=\"nginx\",instance=~\"$instance\"}[1m])", "legendFormat": "{{instance}} RPS", "refId": "A"}],
+      "title": "Nginx requests per second", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}]}}, "overrides": []},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 6}, "id": 3,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "nginx_connections_active{job=\"nginx\",instance=~\"$instance\"}", "legendFormat": "active", "refId": "A"}],
+      "title": "Active connections", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 18, "x": 6, "y": 6}, "id": 4,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "nginx_connections_reading{job=\"nginx\",instance=~\"$instance\"}", "legendFormat": "reading", "refId": "A"},
+        {"expr": "nginx_connections_writing{job=\"nginx\",instance=~\"$instance\"}", "legendFormat": "writing", "refId": "B"},
+        {"expr": "nginx_connections_waiting{job=\"nginx\",instance=~\"$instance\"}", "legendFormat": "waiting", "refId": "C"}
+      ],
+      "title": "Connection states", "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["provisioned", "nginx", "exporter"],
+  "templating": {"list": [{"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(nginx_up{job=\"nginx\"}, instance)", "includeAll": true, "label": "Instance", "name": "instance", "options": [], "query": {"query": "label_values(nginx_up{job=\"nginx\"}, instance)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Nginx Overview",
+  "uid": "nginx-overview",
+  "version": 1
+}

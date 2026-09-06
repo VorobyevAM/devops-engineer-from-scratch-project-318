@@ -1,0 +1,115 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: Production health
+    folder: Observability Alerts
+    interval: 30s
+    rules:
+{% for rule in grafana_alert_rules %}
+      - uid: {{ rule.uid }}
+        title: {{ rule.title | to_json }}
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: {{ rule.expr | to_json }}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - {{ rule.threshold }}
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: status-page
+        panelId: {{ rule.panel_id }}
+        noDataState: {{ rule.no_data_state }}
+        execErrState: Alerting
+        for: {{ rule.for }}
+        annotations:
+          summary: {{ rule.summary | to_json }}
+          runbook_url: "{{ grafana_root_url }}/d/status-page/status-page"
+        labels:
+          service: {{ rule.service }}
+          severity: {{ rule.severity }}
+{% endfor %}
+
+      - uid: manual-notification-test
+        title: Manual notification test
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.5
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: {{ ('1' if grafana_test_alert_enabled | bool else '0') | to_json }}
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              type: math
+        dashboardUid: status-page
+        panelId: 8
+        noDataState: OK
+        execErrState: Alerting
+        for: 10s
+        annotations:
+          summary: Manual Grafana notification delivery test
+          runbook_url: "{{ grafana_root_url }}/d/status-page/status-page"
+        labels:
+          service: monitoring
+          severity: info

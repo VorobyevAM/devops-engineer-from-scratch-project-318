@@ -1,0 +1,43 @@
+groups:
+  - name: availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target is unavailable"
+          description: "A configured scrape target has been down for more than two minutes."
+
+  - name: host
+    rules:
+      - alert: HostHighCpuUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU usage is above 85%"
+
+      - alert: HostLowDiskSpace
+        expr: 100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} < 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host filesystem has less than 15% free space"
+
+  - name: application
+    rules:
+      - alert: ApplicationHighHttp5xxRate
+        expr: >-
+          sum by (instance) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          clamp_min(sum by (instance) (rate(http_server_requests_seconds_count[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Application HTTP 5xx ratio is above 5%"

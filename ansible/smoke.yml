@@ -1,0 +1,182 @@
+---
+- name: Проверить публичные точки входа
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - group_vars/app_servers.yml
+    - group_vars/monitoring.yml
+  vars:
+    app_url: "https://{{ app_domain }}"
+    prometheus_url: "http://{{ hostvars['prometheus'].ansible_host }}:{{ prometheus_ui_port }}"
+    grafana_url: "http://{{ hostvars['prometheus'].ansible_host }}:{{ grafana_ui_port }}"
+  tasks:
+    - name: Проверить главную страницу приложения
+      ansible.builtin.uri:
+        url: "{{ app_url }}/"
+        status_code: 200
+        return_content: true
+        timeout: 15
+      register: smoke_app_page
+      retries: 3
+      delay: 2
+      until: smoke_app_page.status == 200
+
+    - name: Проверить готовность Prometheus
+      ansible.builtin.uri:
+        url: "{{ prometheus_url }}/-/ready"
+        status_code: 200
+        timeout: 10
+      register: smoke_prometheus_ready
+      retries: 3
+      delay: 2
+      until: smoke_prometheus_ready.status == 200
+
+    - name: Получить состояние целей Prometheus
+      ansible.builtin.uri:
+        url: "{{ prometheus_url }}/api/v1/query?query=up"
+        status_code: 200
+        return_content: true
+        timeout: 10
+      register: smoke_prometheus_up
+      retries: 3
+      delay: 2
+      until: smoke_prometheus_up.status == 200
+
+    - name: Проверить API Grafana
+      ansible.builtin.uri:
+        url: "{{ grafana_url }}/api/health"
+        status_code: 200
+        return_content: true
+        timeout: 10
+      register: smoke_grafana
+      retries: 3
+      delay: 2
+      until: smoke_grafana.status == 200
+
+    - name: Подтвердить публичные проверки
+      ansible.builtin.assert:
+        that:
+          - "'html' in smoke_app_page.content.lower()"
+          - smoke_prometheus_up.json.status == 'success'
+          - (smoke_prometheus_up.json.data.result | length) == (prometheus_expected_target_count | int)
+          - (smoke_prometheus_up.json.data.result | map(attribute='value') | map('last') | reject('equalto', '1') | list | length) == 0
+          - smoke_grafana.json.database == 'ok'
+
+- name: Проверить сервисы на сервере приложения
+  hosts: app_servers
+  become: true
+  gather_facts: false
+  vars_files:
+    - group_vars/app_servers.yml
+  tasks:
+    - name: Найти собранный JavaScript-файл
+      ansible.builtin.find:
+        paths: "{{ app_static_dir }}/assets"
+        patterns: "*.js"
+        file_type: file
+      register: smoke_static_files
+
+    - name: Проверить наличие собранной статики
+      ansible.builtin.assert:
+        that:
+          - smoke_static_files.matched | int > 0
+
+    - name: Проверить статический файл через production Nginx
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ app_domain }}:443:127.0.0.1"
+          - "https://{{ app_domain }}/assets/{{ smoke_static_files.files[0].path | basename }}"
+      changed_when: false
+
+    - name: Проверить REST API через production Nginx
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ app_domain }}:443:127.0.0.1"
+          - "https://{{ app_domain }}/api/bulletins"
+      register: smoke_app_api
+      changed_when: false
+
+    - name: Проверить Actuator
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_management_host_port }}/actuator/health"
+        status_code: 200
+        return_content: true
+      register: smoke_actuator
+
+    - name: Проверить Node Exporter
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+        status_code: 200
+        return_content: true
+      register: smoke_node_exporter
+
+    - name: Проверить Promtail
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ promtail_http_port }}/ready"
+        status_code: 200
+
+    - name: Проверить контейнеры приложения
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - "{{ app_container_name }}"
+        - "{{ postgres_container_name }}"
+        - "{{ nginx_exporter_container_name }}"
+        - "{{ promtail_container_name }}"
+      register: smoke_app_containers
+
+    - name: Подтвердить состояние сервисов приложения
+      ansible.builtin.assert:
+        that:
+          - smoke_actuator.json.status == 'UP'
+          - smoke_app_api.stdout | from_json is sequence
+          - "'node_uname_info' in smoke_node_exporter.content"
+          - smoke_app_containers.results | map(attribute='container.State.Running') | reject('equalto', true) | list | length == 0
+
+- name: Проверить сервисы наблюдаемости
+  hosts: monitoring
+  become: true
+  gather_facts: false
+  vars_files:
+    - group_vars/monitoring.yml
+  vars:
+    smoke_loki_query: '{job="application",env="production",app="bulletins",host="bulletin-board"}'
+  tasks:
+    - name: Проверить Loki
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/ready"
+        status_code: 200
+
+    - name: Проверить наличие логов приложения в Loki
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_host_port }}/loki/api/v1/query_range?query={{ smoke_loki_query | urlencode }}&limit=1"
+        status_code: 200
+        return_content: true
+      register: smoke_loki_logs
+
+    - name: Проверить контейнеры наблюдаемости
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - "{{ prometheus_container_name }}"
+        - "{{ grafana_container_name }}"
+        - "{{ loki_container_name }}"
+      register: smoke_monitoring_containers
+
+    - name: Подтвердить состояние наблюдаемости
+      ansible.builtin.assert:
+        that:
+          - smoke_loki_logs.json.status == 'success'
+          - (smoke_loki_logs.json.data.result | length) > 0
+          - smoke_monitoring_containers.results | map(attribute='container.State.Running') | reject('equalto', true) | list | length == 0

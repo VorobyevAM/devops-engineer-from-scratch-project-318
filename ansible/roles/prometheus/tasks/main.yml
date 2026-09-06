@@ -1,0 +1,176 @@
+---
+- name: Validate Prometheus variables and scrape credentials
+  ansible.builtin.assert:
+    that:
+      - prometheus_scrape_jobs | length > 0
+      - monitoring_basic_auth_password is defined
+      - monitoring_basic_auth_password | length >= 16
+      - prometheus_host_bind_address in ['127.0.0.1', '::1']
+    fail_msg: >-
+      Define scrape jobs and an encrypted monitoring_basic_auth_password of at
+      least 16 characters. Prometheus must stay bound to host loopback behind Nginx.
+  no_log: true
+
+- name: Create Prometheus configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ prometheus_config_dir }}"
+    - "{{ prometheus_config_dir }}/rules"
+
+- name: Pull pinned Prometheus image
+  community.docker.docker_image:
+    name: "{{ prometheus_image }}"
+    source: pull
+
+- name: Create isolated monitoring Docker network
+  community.docker.docker_network:
+    name: "{{ prometheus_network_name }}"
+    driver: bridge
+    state: present
+
+- name: Create persistent Prometheus data volume
+  community.docker.docker_volume:
+    name: "{{ prometheus_data_volume }}"
+    state: present
+
+- name: Render Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: root
+    # The official image runs as nobody (65534). Keep the embedded scrape
+    # credential unreadable to other host users while allowing the container.
+    group: "65534"
+    mode: "0640"
+  no_log: true
+  notify: Restart Prometheus
+
+- name: Render Prometheus alerting rules
+  ansible.builtin.template:
+    src: alerts.yml.j2
+    dest: "{{ prometheus_config_dir }}/rules/alerts.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Prometheus
+
+- name: Validate prometheus.yml with promtool
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --entrypoint
+      - /bin/promtool
+      - --volume
+      - "{{ prometheus_config_dir }}:/etc/prometheus:ro"
+      - "{{ prometheus_image }}"
+      - check
+      - config
+      - /etc/prometheus/prometheus.yml
+  changed_when: false
+  no_log: true
+
+- name: Validate alerting rules with promtool
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --entrypoint
+      - /bin/promtool
+      - --volume
+      - "{{ prometheus_config_dir }}:/etc/prometheus:ro"
+      - "{{ prometheus_image }}"
+      - check
+      - rules
+      - /etc/prometheus/rules/alerts.yml
+  changed_when: false
+
+- name: Run Prometheus container
+  community.docker.docker_container:
+    name: "{{ prometheus_container_name }}"
+    image: "{{ prometheus_image }}"
+    state: started
+    recreate: false
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ prometheus_network_name }}"
+    comparisons:
+      networks: strict
+    published_ports:
+      - "{{ prometheus_host_bind_address }}:{{ prometheus_host_port }}:{{ prometheus_container_port }}"
+    volumes:
+      - "{{ prometheus_config_dir }}:/etc/prometheus:ro"
+      - "{{ prometheus_data_volume }}:/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention_time }}"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --spider http://127.0.0.1:9090/-/ready || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    container_default_behavior: no_defaults
+
+- name: Configure Nginx reverse proxy for Prometheus
+  ansible.builtin.template:
+    src: nginx-prometheus.conf.j2
+    dest: /etc/nginx/conf.d/prometheus.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Nginx
+
+- name: Disable the default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload Nginx
+
+- name: Validate Nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Apply pending service changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Prometheus readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ prometheus_host_port }}/-/ready"
+    status_code: 200
+    return_content: true
+  register: prometheus_ready
+  retries: 12
+  delay: 5
+  until: prometheus_ready.status == 200
+
+- name: Wait until every configured scrape target is up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ prometheus_host_port }}/api/v1/query?query=up"
+    status_code: 200
+    return_content: true
+  register: prometheus_up_query
+  retries: 12
+  delay: 5
+  until: >-
+    prometheus_up_query.json.status == 'success' and
+    (prometheus_up_query.json.data.result | length) == (prometheus_expected_target_count | int) and
+    (prometheus_up_query.json.data.result | map(attribute='value') | map('last') | reject('equalto', '1') | list | length) == 0
+
+- name: Report healthy Prometheus targets
+  ansible.builtin.debug:
+    msg: >-
+      Prometheus is ready; {{ prometheus_up_query.json.data.result | length }}
+      configured targets report up == 1.
