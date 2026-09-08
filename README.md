@@ -3,13 +3,15 @@
 [![hexlet-check](https://github.com/VorobyevAM/devops-engineer-from-scratch-project-318/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/VorobyevAM/devops-engineer-from-scratch-project-318/actions)
 [![CI](https://github.com/VorobyevAM/devops-engineer-from-scratch-project-318/actions/workflows/ci.yml/badge.svg)](https://github.com/VorobyevAM/devops-engineer-from-scratch-project-318/actions/workflows/ci.yml)
 
-Проект разворачивает доску объявлений на Spring Boot и React, PostgreSQL,
-Nginx и стек наблюдаемости: Node Exporter, Nginx Prometheus Exporter,
-Prometheus, Grafana, Loki и Promtail. Серверы настраиваются плейбуками из
-каталога `ansible`, приложение и сервисы наблюдаемости работают в Docker.
+Проект содержит только инфраструктуру для доски объявлений: PostgreSQL, Nginx,
+Node Exporter, Nginx Prometheus Exporter, Prometheus, Grafana, Loki и Promtail.
+Серверы настраиваются плейбуками из каталога `ansible`, приложение и сервисы
+наблюдаемости работают в Docker.
 
-Исходный проект — `hexlet-components/project-devops-deploy`. Репозиторий этого
-решения — `VorobyevAM/devops-engineer-from-scratch-project-318`.
+Код и сборочный CI приложения находятся в отдельном форке
+[`VorobyevAM/project-devops-deploy`](https://github.com/VorobyevAM/project-devops-deploy).
+Этот репозиторий содержит Ansible-инфраструктуру и использует готовый образ
+`ghcr.io/vorobyevam/project-devops-deploy`.
 
 ## Текущее окружение
 
@@ -28,9 +30,9 @@ Prometheus, Grafana, Loki и Promtail. Серверы настраиваются
 
 | Сервис | URL |
 |---|---|
-| Приложение | `https://hexlet-vorobev.chickenkiller.com` |
-| REST API | `https://hexlet-vorobev.chickenkiller.com/api/bulletins` |
-| Swagger UI | `https://hexlet-vorobev.chickenkiller.com/swagger-ui/index.html` |
+| Приложение | `https://62-84-122-118.sslip.io` |
+| REST API | `https://62-84-122-118.sslip.io/api/bulletins` |
+| Swagger UI | `https://62-84-122-118.sslip.io/swagger-ui/index.html` |
 | Prometheus | `http://111.88.153.136:9090/graph` |
 | Цели Prometheus | `http://111.88.153.136:9090/targets` |
 | Grafana | `http://111.88.153.136:3000` |
@@ -86,7 +88,8 @@ Prometheus, Grafana, Loki и Promtail. Серверы настраиваются
 | `ansible/group_vars/monitoring.yml` | Prometheus, Grafana, Loki и alert rules |
 | `ansible/group_vars/all/vault.yml` | общие зашифрованные секреты |
 | `ansible/playbook.yml` | подготовка сервера приложения |
-| `ansible/deploy.yml` | PostgreSQL, Flyway и приложение |
+| `ansible/deploy.yml` | PostgreSQL и приложение со встроенными Flyway-миграциями |
+| `ansible/requirements.yml` | закреплённые роли Docker, Nginx и Certbot и коллекции |
 | `ansible/monitoring.yml` | сервер наблюдаемости |
 | `ansible/smoke.yml` | комплексная проверка окружения |
 | `ansible/logging-check.yml` | проверка Promtail → Loki |
@@ -98,20 +101,25 @@ Prometheus, Grafana, Loki и Promtail. Серверы настраиваются
 
 ### 1. Подготовить локальную машину
 
-Необходимы Git, Python 3, Ansible, Docker с Buildx, Java 21, Node.js 24 и npm.
+Необходимы Git, Python 3, Ansible и Docker.
 Создайте SSH-ключ и добавьте публичную часть в метаданные ВМ Yandex Cloud:
 
 ```bash
 ssh-keygen -t ed25519 -C "devops-project"
 ```
 
-### 2. Создать fork и клонировать репозиторий
+### 2. Создать форки и клонировать инфраструктуру
 
 ```bash
 git clone git@github.com:<имя-пользователя>/devops-engineer-from-scratch-project-318.git
 cd devops-engineer-from-scratch-project-318
-git remote add upstream https://github.com/hexlet-components/project-devops-deploy.git
 ```
+
+Приложение форкается отдельно из
+[`hexlet-components/project-devops-deploy`](https://github.com/hexlet-components/project-devops-deploy).
+В форке приложения должны находиться исходники, Dockerfile и workflow,
+публикующий образ в GHCR. Исходники приложения в инфраструктурный репозиторий
+не копируются.
 
 ### 3. Создать инфраструктуру
 
@@ -123,12 +131,14 @@ git remote add upstream https://github.com/hexlet-components/project-devops-depl
 При необходимости вместо него можно указать Managed PostgreSQL через
 `SPRING_DATASOURCE_*`.
 
-Создайте DNS A-запись домена на публичный IP приложения и проверьте доступ:
+Для собственного домена создайте DNS A-запись на публичный IP приложения.
+Текущее имя `62-84-122-118.sslip.io` автоматически резолвится в
+`62.84.122.118`, поэтому отдельная DNS-запись для него не нужна:
 
 ```bash
 ssh yc-user@<app-public-ip>
 ssh yc-user@<monitoring-public-ip>
-dig +short hexlet-vorobev.chickenkiller.com
+dig +short 62-84-122-118.sslip.io
 ```
 
 ### 4. Заполнить inventory и переменные
@@ -219,8 +229,11 @@ make monitoring-deploy VAULT_PASSWORD_FILE=.vault_pass
 make ansible-run VAULT_PASSWORD_FILE=.vault_pass
 ```
 
-Плейбуки устанавливают Docker, Nginx, UFW и агенты. Их можно запускать
-повторно: они приводят серверы к описанному состоянию.
+Плейбуки устанавливают Docker, Nginx, Certbot, UFW и агенты. Docker, Nginx и
+Certbot подключены готовыми ролями из `ansible/requirements.yml`; скачанные
+роли хранятся только в игнорируемом `ansible/.ansible/roles`. Роль Certbot
+выпускает сертификат методом webroot и создаёт ежедневное автообновление с
+перезагрузкой Nginx. Плейбуки можно запускать повторно.
 
 ### 8. Развернуть приложение
 
@@ -228,8 +241,9 @@ make ansible-run VAULT_PASSWORD_FILE=.vault_pass
 make deploy VAULT_PASSWORD_FILE=.vault_pass IMAGE_TAG=latest
 ```
 
-Плейбук запускает PostgreSQL, применяет Flyway-миграции, загружает образ,
-извлекает статические файлы для Nginx и ждёт Actuator healthcheck. Откат:
+Плейбук запускает PostgreSQL, загружает образ из отдельного форка и ждёт
+Actuator healthcheck. Flyway-миграции и frontend входят в образ приложения;
+Nginx проксирует запросы к контейнеру. Откат:
 
 ```bash
 make rollback VAULT_PASSWORD_FILE=.vault_pass IMAGE_TAG=sha-abcdef1
@@ -343,10 +357,8 @@ make alert-test-resolve VAULT_PASSWORD_FILE=.vault_pass
 | Команда | Назначение |
 |---|---|
 | `make lint` | установить и запустить `ansible-lint` |
-| `make test` | тесты Spring Boot и Ansible lint |
+| `make test` | Ansible lint и syntax-check всех плейбуков |
 | `make smoke` | полная проверка работающего окружения |
-| `make docker-build` | локальная сборка Docker-образа |
-| `make docker-run` | локальный запуск приложения |
 | `make ansible-install` | установить Ansible roles и collections |
 | `make ansible-syntax` | проверить синтаксис всех плейбуков |
 | `make ansible-run` | подготовить сервер приложения |
@@ -361,9 +373,10 @@ make alert-test-resolve VAULT_PASSWORD_FILE=.vault_pass
 
 ## CI/CD
 
-GitHub Actions собирает frontend, запускает Gradle-тесты и собирает Docker
-image. При успешном push в `main` образ публикуется в GHCR с тегами `latest` и
-`sha-<7-символов-коммита>`. Для private package данные registry должны лежать
+GitHub Actions этого репозитория устанавливает зависимости Ansible и запускает
+`make test`. Сборка frontend, Gradle-тесты и публикация Docker-образа выполняются
+в отдельном репозитории приложения. Образ публикуется в GHCR с тегами `latest`
+и `sha-<7-символов-коммита>`. Для private package данные registry должны лежать
 в Vault как `app_registry_username` и `app_registry_password`.
 
 Данные PostgreSQL, Prometheus, Grafana, Loki и позиции Promtail находятся в

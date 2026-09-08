@@ -1,7 +1,7 @@
 ---
 app_name: bulletin-board
 app_container_name: bulletin-board
-app_image: ghcr.io/vorobyevam/devops-engineer-from-scratch-project-318
+app_image: ghcr.io/vorobyevam/project-devops-deploy
 app_image_tag: latest
 app_registry: ghcr.io
 app_domain: ""
@@ -14,8 +14,6 @@ app_management_container_port: 9090
 app_base_dir: /opt/bulletin-board
 app_data_dir: "{{ app_base_dir }}/data"
 app_logs_dir: "{{ app_base_dir }}/logs"
-app_migrations_dir: "{{ app_base_dir }}/migrations"
-app_static_dir: "{{ app_base_dir }}/static"
 app_pull_policy: always
 
 postgres_container_name: bulletin-board-postgres
@@ -23,8 +21,6 @@ postgres_image: postgres:16-alpine
 postgres_data_dir: "{{ app_base_dir }}/postgres"
 postgres_db: bulletins
 postgres_port: "5432"
-
-flyway_image: flyway/flyway:11-alpine
 
 app_env:
   SPRING_PROFILES_ACTIVE: prod

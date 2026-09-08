@@ -1,10 +1,10 @@
 ---
 app_name: bulletin-board
 app_container_name: bulletin-board
-app_image: ghcr.io/vorobyevam/devops-engineer-from-scratch-project-318
+app_image: ghcr.io/vorobyevam/project-devops-deploy
 app_image_tag: latest
 app_registry: ghcr.io
-app_domain: hexlet-vorobev.chickenkiller.com
+app_domain: 62-84-122-118.sslip.io
 app_network: bulletin-board
 app_host_bind_ip: 127.0.0.1
 app_host_port: 8080
@@ -14,13 +14,55 @@ app_management_container_port: 9090
 app_base_dir: /opt/bulletin-board
 app_data_dir: "{{ app_base_dir }}/data"
 app_logs_dir: "{{ app_base_dir }}/logs"
-app_migrations_dir: "{{ app_base_dir }}/migrations"
-app_static_dir: "{{ app_base_dir }}/static"
 app_pull_policy: always
 
 certbot_email: vorobyev.93@mail.ru
 letsencrypt_webroot: /var/www/letsencrypt
 letsencrypt_live_dir: "/etc/letsencrypt/live/{{ app_domain }}"
+certbot_install_method: package
+certbot_create_if_missing: true
+certbot_create_method: webroot
+certbot_admin_email: "{{ certbot_email }}"
+certbot_auto_renew: true
+certbot_auto_renew_user: root
+certbot_auto_renew_hour: "3"
+certbot_auto_renew_minute: "17"
+certbot_auto_renew_options: "--quiet --deploy-hook 'systemctl reload nginx'"
+certbot_certs:
+  - name: "{{ app_domain }}"
+    email: "{{ certbot_email }}"
+    webroot: "{{ letsencrypt_webroot }}"
+    deploy_hook: systemctl reload nginx
+    domains:
+      - "{{ app_domain }}"
+
+nginx_remove_default_vhost: true
+nginx_vhosts:
+  - server_name: "{{ app_domain }}"
+    filename: bulletin-board.conf
+    template: "{{ playbook_dir }}/templates/nginx-bulletin-board.conf.j2"
+nginx_extra_http_options: |
+  log_format observability_json escape=json
+      '{'
+        '"@timestamp":"$time_iso8601",'
+        '"service":"nginx",'
+        '"log_type":"access",'
+        '"server_name":"$server_name",'
+        '"remote_addr":"$remote_addr",'
+        '"request_method":"$request_method",'
+        '"request_uri":"$request_uri",'
+        '"status":$status,'
+        '"body_bytes_sent":$body_bytes_sent,'
+        '"request_time":$request_time,'
+        '"upstream_addr":"$upstream_addr",'
+        '"upstream_status":"$upstream_status",'
+        '"upstream_response_time":"$upstream_response_time",'
+        '"http_referer":"$http_referer",'
+        '"http_user_agent":"$http_user_agent"'
+      '}';
+  proxy_cache_path /var/cache/nginx/bulletin-board
+      levels=1:2 keys_zone=bulletin_board_static:20m max_size=256m
+      inactive=24h use_temp_path=off;
 
 allowed_tcp_ports:
   - "22"
@@ -36,7 +78,7 @@ denied_tcp_ports:
 # This is the private /32 of the monitoring VM. Never use 0.0.0.0/0 here or
 # in the application VM's Yandex Cloud Security Group.
 monitoring_server_cidr: "{{ monitoring_private_ip }}/32"
-monitoring_bind_address: "{{ ansible_default_ipv4.address }}"
+monitoring_bind_address: "{{ ansible_facts.default_ipv4.address }}"
 monitoring_management_proxy_port: 9090
 monitoring_node_exporter_proxy_port: 9100
 monitoring_basic_auth_user: prometheus
@@ -72,8 +114,6 @@ postgres_image: postgres:16-alpine
 postgres_data_dir: "{{ app_base_dir }}/postgres"
 postgres_db: bulletins
 postgres_port: "5432"
-
-flyway_image: flyway/flyway:11-alpine
 
 app_env:
   SPRING_PROFILES_ACTIVE: prod

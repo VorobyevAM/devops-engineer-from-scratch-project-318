@@ -15,7 +15,7 @@
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
-      when: ansible_os_family == "Debian"
+      when: ansible_facts["os_family"] == "Debian"
 
     - name: Install base packages
       ansible.builtin.apt:
@@ -25,8 +25,6 @@
           - git
           - gnupg
           - htop
-          - certbot
-          - nginx
           - python3
           - python3-bcrypt
           - python3-docker
@@ -36,15 +34,8 @@
           - ufw
           - unzip
         state: present
-      when: ansible_os_family == "Debian"
+      when: ansible_facts["os_family"] == "Debian"
 
-  roles:
-    - role: geerlingguy.docker
-    - role: node_exporter
-    - role: nginx_exporter
-    - role: promtail
-
-  tasks:
     - name: Validate monitoring access settings
       ansible.builtin.assert:
         that:
@@ -54,9 +45,29 @@
           - monitoring_basic_auth_password | length >= 16
         fail_msg: >-
           Set a restricted monitoring_server_cidr and a password of at least
-          16 characters in encrypted group_vars/app_servers/vault.yml (the
-          same value must be present for the monitoring group).
+          16 characters in encrypted group_vars/all/vault.yml.
       no_log: true
+
+    - name: Create Nginx runtime directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "{{ item.mode }}"
+      loop:
+        - path: /var/cache/nginx/bulletin-board
+          mode: "0755"
+        - path: "{{ letsencrypt_webroot }}/.well-known/acme-challenge"
+          mode: "0755"
+
+    - name: Create Nginx configuration directory
+      ansible.builtin.file:
+        path: /etc/nginx
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
 
     - name: Configure monitoring Basic Auth credentials
       community.general.htpasswd:
@@ -68,14 +79,6 @@
         mode: "0640"
         crypt_scheme: bcrypt
       no_log: true
-      notify: Reload nginx
-
-    - name: Configure Nginx JSON access log format
-      ansible.builtin.template:
-        src: nginx-json-logging.conf.j2
-        dest: /etc/nginx/conf.d/00-observability-json.conf
-        mode: "0644"
-      notify: Reload nginx
 
     - name: Configure JSON serialization for Nginx error logs
       ansible.builtin.template:
@@ -84,36 +87,18 @@
         mode: "0644"
       notify: Restart rsyslog
 
-    - name: Configure protected monitoring reverse proxy
-      ansible.builtin.template:
-        src: nginx-monitoring.conf.j2
-        dest: /etc/nginx/conf.d/10-monitoring-endpoints.conf
-        mode: "0644"
-      notify: Reload nginx
-
-    - name: Create Nginx cache directory
+    - name: Remove legacy manually managed Nginx configuration
       ansible.builtin.file:
-        path: /var/cache/nginx/bulletin-board
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0755"
-
-    - name: Create static files directory for Nginx
-      ansible.builtin.file:
-        path: "{{ app_static_dir }}"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0755"
-
-    - name: Create Let's Encrypt webroot
-      ansible.builtin.file:
-        path: "{{ letsencrypt_webroot }}/.well-known/acme-challenge"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0755"
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nginx/conf.d/00-observability-json.conf
+        - /etc/nginx/conf.d/10-monitoring-endpoints.conf
+        - /etc/nginx/conf.d/bulletin-board-cache.conf
+        - /etc/nginx/sites-available/bulletin-board
+        - /etc/nginx/sites-enabled/bulletin-board
+        - /etc/nginx/sites-enabled/bulletin-board-http.conf
+        - /etc/nginx/sites-enabled/bulletin-board-https.conf
 
     - name: Check issued Let's Encrypt certificate
       ansible.builtin.stat:
@@ -124,45 +109,41 @@
       ansible.builtin.set_fact:
         nginx_tls_enabled: "{{ letsencrypt_certificate.stat.exists }}"
 
-    - name: Configure Nginx cache storage
-      ansible.builtin.copy:
-        dest: /etc/nginx/conf.d/bulletin-board-cache.conf
-        mode: "0644"
-        content: |
-          proxy_cache_path /var/cache/nginx/bulletin-board
-              levels=1:2
-              keys_zone=bulletin_board_static:20m
-              max_size=256m
-              inactive=24h
-              use_temp_path=off;
-      notify: Reload nginx
+  roles:
+    - role: geerlingguy.docker
+    - role: geerlingguy.nginx
+    - role: geerlingguy.certbot
+    - role: node_exporter
+    - role: nginx_exporter
+    - role: promtail
 
-    - name: Configure Nginx reverse proxy
-      ansible.builtin.template:
-        src: nginx-bulletin-board.conf.j2
-        dest: /etc/nginx/sites-available/bulletin-board
-        mode: "0644"
-      notify: Reload nginx
+  tasks:
+    - name: Check issued Let's Encrypt certificate after Certbot role
+      ansible.builtin.stat:
+        path: "{{ letsencrypt_live_dir }}/fullchain.pem"
+      register: letsencrypt_certificate_after
 
-    - name: Enable Nginx site
-      ansible.builtin.file:
-        src: /etc/nginx/sites-available/bulletin-board
-        dest: /etc/nginx/sites-enabled/bulletin-board
-        state: link
-      notify: Reload nginx
+    - name: Require certificate generated by Certbot role
+      ansible.builtin.assert:
+        that: letsencrypt_certificate_after.stat.exists
+        fail_msg: >-
+          Certbot did not issue a certificate. Check that {{ app_domain }}
+          resolves to {{ ansible_host }} and TCP port 80 is reachable.
 
-    - name: Disable default Nginx site
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      notify: Reload nginx
+    - name: Enable TLS configuration
+      ansible.builtin.set_fact:
+        nginx_tls_enabled: true
+
+    - name: Apply Nginx site through reusable role
+      ansible.builtin.include_role:
+        name: geerlingguy.nginx
+
+    - name: Apply Nginx handlers
+      ansible.builtin.meta: flush_handlers
 
     - name: Validate Nginx configuration
       ansible.builtin.command: nginx -t
       changed_when: false
-
-    - name: Apply Nginx configuration
-      ansible.builtin.meta: flush_handlers
 
     - name: Verify local Nginx stub_status endpoint
       ansible.builtin.uri:
@@ -191,58 +172,6 @@
         - "'nginx_connections_active' in nginx_exporter_metrics.content"
         - "'nginx_http_requests_total' in nginx_exporter_metrics.content"
       changed_when: false
-
-    - name: Issue Let's Encrypt certificate
-      ansible.builtin.command:
-        cmd: >-
-          certbot certonly
-          --webroot
-          --webroot-path {{ letsencrypt_webroot }}
-          --domain {{ app_domain }}
-          --email {{ certbot_email }}
-          --agree-tos
-          --non-interactive
-          --no-eff-email
-      register: certbot_issue
-      changed_when: "'Successfully received certificate' in certbot_issue.stdout"
-      when: not nginx_tls_enabled
-
-    - name: Check issued Let's Encrypt certificate after Certbot
-      ansible.builtin.stat:
-        path: "{{ letsencrypt_live_dir }}/fullchain.pem"
-      register: letsencrypt_certificate_after
-
-    - name: Enable TLS Nginx configuration
-      ansible.builtin.set_fact:
-        nginx_tls_enabled: "{{ letsencrypt_certificate_after.stat.exists }}"
-
-    - name: Configure Nginx reverse proxy with TLS
-      ansible.builtin.template:
-        src: nginx-bulletin-board.conf.j2
-        dest: /etc/nginx/sites-available/bulletin-board
-        mode: "0644"
-      notify: Reload nginx
-
-    - name: Validate TLS Nginx configuration
-      ansible.builtin.command: nginx -t
-      changed_when: false
-
-    - name: Apply TLS Nginx configuration
-      ansible.builtin.meta: flush_handlers
-
-    - name: Ensure Certbot renewal deploy hook reloads Nginx
-      ansible.builtin.copy:
-        dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          systemctl reload nginx
-
-    - name: Enable Certbot renewal timer
-      ansible.builtin.systemd:
-        name: certbot.timer
-        enabled: true
-        state: started
 
     - name: Allow required TCP ports
       community.general.ufw:
@@ -300,11 +229,6 @@
           - "{{ docker_compose_version.stdout }}"
 
   handlers:
-    - name: Reload nginx
-      ansible.builtin.service:
-        name: nginx
-        state: reloaded
-
     - name: Restart rsyslog
       ansible.builtin.service:
         name: rsyslog

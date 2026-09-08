@@ -4,9 +4,12 @@ offline: true
 exclude_paths:
   - .ansible/
   - group_vars/all/vault.yml
-  - roles/geerlingguy.docker/
+  - group_vars/app_servers/vault.yml
+  - group_vars/monitoring/vault.yml
 mock_roles:
   - geerlingguy.docker
+  - geerlingguy.nginx
+  - geerlingguy.certbot
 skip_list:
   # Эти переменные образуют общий интерфейс между playbook, group_vars и
   # несколькими ролями; переименование по имени одной роли разрушает его.

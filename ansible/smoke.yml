@@ -58,6 +58,7 @@
       ansible.builtin.assert:
         that:
           - "'html' in smoke_app_page.content.lower()"
+          - "'/assets/' in smoke_app_page.content"
           - smoke_prometheus_up.json.status == 'success'
           - (smoke_prometheus_up.json.data.result | length) == (prometheus_expected_target_count | int)
           - (smoke_prometheus_up.json.data.result | map(attribute='value') | map('last') | reject('equalto', '1') | list | length) == 0
@@ -70,30 +71,6 @@
   vars_files:
     - group_vars/app_servers.yml
   tasks:
-    - name: Найти собранный JavaScript-файл
-      ansible.builtin.find:
-        paths: "{{ app_static_dir }}/assets"
-        patterns: "*.js"
-        file_type: file
-      register: smoke_static_files
-
-    - name: Проверить наличие собранной статики
-      ansible.builtin.assert:
-        that:
-          - smoke_static_files.matched | int > 0
-
-    - name: Проверить статический файл через production Nginx
-      ansible.builtin.command:
-        argv:
-          - curl
-          - --fail
-          - --silent
-          - --show-error
-          - --resolve
-          - "{{ app_domain }}:443:127.0.0.1"
-          - "https://{{ app_domain }}/assets/{{ smoke_static_files.files[0].path | basename }}"
-      changed_when: false
-
     - name: Проверить REST API через production Nginx
       ansible.builtin.command:
         argv:

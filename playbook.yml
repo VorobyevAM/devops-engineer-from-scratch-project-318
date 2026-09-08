@@ -1,5 +1,0 @@
----
-# Совместимость со старой автоматической проверкой Hexlet.
-# Все рабочие Ansible-файлы находятся в директории ansible.
-- name: Подключить основной плейбук из директории Ansible
-  ansible.builtin.import_playbook: ansible/playbook.yml

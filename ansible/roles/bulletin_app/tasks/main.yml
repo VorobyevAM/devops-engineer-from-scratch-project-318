@@ -24,10 +24,6 @@
       mode: "0777"
     - path: "{{ app_logs_dir }}"
       mode: "0755"
-    - path: "{{ app_migrations_dir }}"
-      mode: "0755"
-    - path: "{{ app_static_dir }}"
-      mode: "0755"
     - path: "{{ postgres_data_dir }}"
       mode: "0700"
 
@@ -72,32 +68,6 @@
   changed_when: false
   no_log: true
 
-- name: Upload Flyway migrations
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/src/main/resources/db/migration/"
-    dest: "{{ app_migrations_dir }}/"
-    mode: "0644"
-
-- name: Run database migrations
-  community.docker.docker_container:
-    name: "{{ app_container_name }}-migrations"
-    image: "{{ flyway_image }}"
-    state: started
-    cleanup: true
-    detach: false
-    pull: always
-    command:
-      - "-url={{ app_secret_env.SPRING_DATASOURCE_URL }}"
-      - "-user={{ app_secret_env.SPRING_DATASOURCE_USERNAME }}"
-      - "-password={{ app_secret_env.SPRING_DATASOURCE_PASSWORD }}"
-      - "-locations=filesystem:/flyway/sql"
-      - "migrate"
-    networks:
-      - name: "{{ app_network }}"
-    volumes:
-      - "{{ app_migrations_dir }}:/flyway/sql:ro"
-  no_log: true
-
 - name: Log in to container registry
   community.docker.docker_login:
     registry_url: "{{ app_registry }}"
@@ -112,37 +82,6 @@
   community.docker.docker_image_pull:
     name: "{{ app_image }}:{{ app_image_tag }}"
     pull: "{{ app_pull_policy }}"
-
-- name: Remove stale static extractor container
-  community.docker.docker_container:
-    name: "{{ app_container_name }}-static-extract"
-    state: absent
-
-- name: Create static extractor container
-  ansible.builtin.command:
-    cmd: "docker create --name {{ app_container_name }}-static-extract {{ app_image }}:{{ app_image_tag }}"
-  changed_when: true
-
-- name: Refresh static files directory
-  ansible.builtin.file:
-    path: "{{ app_static_dir }}"
-    state: absent
-
-- name: Recreate static files directory
-  ansible.builtin.file:
-    path: "{{ app_static_dir }}"
-    state: directory
-    mode: "0755"
-
-- name: Extract static files from application image
-  ansible.builtin.command:
-    cmd: "docker cp {{ app_container_name }}-static-extract:/app/static/. {{ app_static_dir }}/"
-  changed_when: true
-
-- name: Remove static extractor container
-  community.docker.docker_container:
-    name: "{{ app_container_name }}-static-extract"
-    state: absent
 
 - name: Build container environment
   ansible.builtin.set_fact:

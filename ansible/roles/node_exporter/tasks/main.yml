@@ -2,12 +2,12 @@
 - name: Validate Node Exporter architecture
   ansible.builtin.assert:
     that:
-      - ansible_architecture in node_exporter_architecture_map
-    fail_msg: "Unsupported Node Exporter architecture: {{ ansible_architecture }}"
+      - ansible_facts.architecture in node_exporter_architecture_map
+    fail_msg: "Unsupported Node Exporter architecture: {{ ansible_facts.architecture }}"
 
 - name: Select Node Exporter architecture
   ansible.builtin.set_fact:
-    node_exporter_arch: "{{ node_exporter_architecture_map[ansible_architecture] }}"
+    node_exporter_arch: "{{ node_exporter_architecture_map[ansible_facts.architecture] }}"
 
 - name: Create Node Exporter system group
   ansible.builtin.group:
