@@ -130,6 +130,21 @@
           Certbot did not issue a certificate. Check that {{ app_domain }}
           resolves to {{ ansible_host }} and TCP port 80 is reachable.
 
+    - name: Read the deployed TLS certificate chain
+      ansible.builtin.slurp:
+        src: "{{ letsencrypt_live_dir }}/fullchain.pem"
+      register: letsencrypt_fullchain
+
+    - name: Require a leaf and intermediate certificate in the full chain
+      ansible.builtin.assert:
+        that:
+          - >-
+            (letsencrypt_fullchain.content | b64decode |
+            regex_findall('-----BEGIN CERTIFICATE-----') | length) >= 2
+        fail_msg: >-
+          {{ letsencrypt_live_dir }}/fullchain.pem does not contain an
+          intermediate certificate. Nginx must serve the complete TLS chain.
+
     - name: Enable TLS configuration
       ansible.builtin.set_fact:
         nginx_tls_enabled: true

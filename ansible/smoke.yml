@@ -126,10 +126,33 @@
   become: true
   gather_facts: false
   vars_files:
+    - group_vars/app_servers.yml
     - group_vars/monitoring.yml
   vars:
+    smoke_app_domain: "{{ app_domain }}"
     smoke_loki_query: '{job="application",env="production",app="bulletins",host="bulletin-board"}'
   tasks:
+    - name: Проверить публичную TLS-цепочку приложения
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - s_client
+          - -connect
+          - "{{ smoke_app_domain }}:443"
+          - -servername
+          - "{{ smoke_app_domain }}"
+          - -verify_return_error
+          - -brief
+      register: smoke_tls_chain
+      changed_when: false
+
+    - name: Подтвердить доверенную TLS-цепочку
+      ansible.builtin.assert:
+        that:
+          - smoke_tls_chain.rc == 0
+          - "'Verification: OK' in smoke_tls_chain.stderr"
+        fail_msg: Nginx не отдаёт полную доверенную цепочку сертификатов.
+
     - name: Проверить Loki
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ loki_host_port }}/ready"

@@ -243,10 +243,10 @@ make rollback VAULT_PASSWORD_FILE=.vault_pass IMAGE_TAG=sha-abcdef1
 make smoke VAULT_PASSWORD_FILE=.vault_pass
 ```
 
-Команда проверяет SSH обеих ВМ, главную страницу и REST API, Actuator, Node
-Exporter, контейнеры, готовность Prometheus и Grafana, три цели со значением
-`up == 1`, наличие логов в Loki и доставку уникальной записи Nginx через
-Promtail.
+Команда проверяет SSH обеих ВМ, главную страницу и REST API, полную TLS-цепочку
+Nginx, Actuator, Node Exporter, контейнеры, готовность Prometheus и Grafana,
+три цели со значением `up == 1`, наличие логов в Loki и доставку уникальной
+записи Nginx через Promtail.
 
 ## Метрики и точки проверки
 

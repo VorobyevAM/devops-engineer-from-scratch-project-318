@@ -15,7 +15,7 @@
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
-      when: ansible_os_family == "Debian"
+      when: ansible_facts["os_family"] == "Debian"
 
     - name: Install monitoring host packages
       ansible.builtin.apt:
@@ -23,12 +23,13 @@
           - ca-certificates
           - curl
           - nginx
+          - openssl
           - python3
           - python3-docker
           - python3-passlib
           - ufw
         state: present
-      when: ansible_os_family == "Debian"
+      when: ansible_facts["os_family"] == "Debian"
 
   roles:
     - role: geerlingguy.docker
